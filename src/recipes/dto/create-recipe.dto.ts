@@ -32,4 +32,13 @@ export class CreateRecipeDto {
   @IsOptional()
   @IsBoolean()
   isFavorite?: boolean;
+
+  // NOUVELLES PROPRIÉTÉS
+  @IsOptional()
+  @IsBoolean()
+  isPublic?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  tags?: string[];
 }

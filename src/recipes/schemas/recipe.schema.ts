@@ -8,6 +8,7 @@ export class Recipe {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
+  // Informations de base
   @Prop({ required: true })
   title: string;
 
@@ -32,6 +33,30 @@ export class Recipe {
   @Prop({ default: false })
   isFavorite: boolean;
 
+  // NOUVELLES PROPRIÉTÉS SOCIALES
+  @Prop({ default: false })
+  isPublic: boolean;
+
+  @Prop({ default: 0 })
+  likes: number;
+
+  @Prop({ type: [Types.ObjectId], default: [] })
+  likedBy: Types.ObjectId[];
+
+  @Prop({ default: 0 })
+  views: number;
+
+  @Prop({ type: [String], default: [] })
+  tags: string[];
+
+  // Informations de l'auteur (dénormalisées pour performance)
+  @Prop()
+  authorName: string;
+
+  @Prop()
+  authorAvatar?: string;
+
+  // Timestamps
   @Prop({ default: Date.now })
   createdAt: Date;
 
@@ -40,3 +65,10 @@ export class Recipe {
 }
 
 export const RecipeSchema = SchemaFactory.createForClass(Recipe);
+
+// Index pour recherche et performance
+RecipeSchema.index({ isPublic: 1, createdAt: -1 });
+RecipeSchema.index({ isPublic: 1, likes: -1 });
+RecipeSchema.index({ isPublic: 1, views: -1 });
+RecipeSchema.index({ userId: 1, isPublic: 1 });
+RecipeSchema.index({ tags: 1 });
