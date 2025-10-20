@@ -1,4 +1,5 @@
 import { IsOptional, IsString, IsEnum, IsNumber, Min } from 'class-validator';
+import { Type } from 'class-transformer'; // ADD THIS LINE
 
 export enum RecipeSortBy {
   NEWEST = 'newest',
@@ -28,11 +29,13 @@ export class QueryRecipeDto {
   tag?: string;
 
   @IsOptional()
+  @Type(() => Number)  // ADD THIS LINE
   @IsNumber()
   @Min(1)
   page?: number = 1;
 
   @IsOptional()
+  @Type(() => Number)  // ADD THIS LINE
   @IsNumber()
   @Min(1)
   limit?: number = 20;

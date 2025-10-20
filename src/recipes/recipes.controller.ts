@@ -15,6 +15,8 @@ import { CreateRecipeDto } from './dto/create-recipe.dto';
 import { UpdateRecipeDto } from './dto/update-recipe.dto';
 import { QueryRecipeDto } from './dto/query-recipe.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
+import { CreateCommentDto } from './dto/create-comment.dto';
+
 
 @Controller('recipes')
 export class RecipesController {
@@ -23,6 +25,40 @@ export class RecipesController {
   // ============================================
   // ROUTES PUBLIQUES EN PREMIER (TRÈS IMPORTANT)
   // ============================================
+
+  @Get('public/:id/comments')
+async getRecipeComments(@Param('id') id: string) {
+  return this.recipesService.getComments(id);
+}
+
+// Add a comment to a public recipe
+@UseGuards(JwtAuthGuard)
+@Post(':id/comments')
+async addComment(
+  @Param('id') id: string,
+  @Body() createCommentDto: CreateCommentDto,
+  @Request() req,
+) {
+  console.log('🔵 ADD COMMENT - Recipe ID:', id, 'User:', req.user);
+  return this.recipesService.addComment(
+    id,
+    req.user.userId,
+    req.user.name || 'Anonyme',
+    createCommentDto.text,
+  );
+}
+
+// Delete a comment
+@UseGuards(JwtAuthGuard)
+@Delete(':id/comments/:commentId')
+async deleteComment(
+  @Param('id') recipeId: string,
+  @Param('commentId') commentId: string,
+  @Request() req,
+) {
+  console.log('🔵 DELETE COMMENT - Recipe:', recipeId, 'Comment:', commentId);
+  return this.recipesService.deleteComment(recipeId, commentId, req.user.userId);
+}
   
   @Get('public/feed')
   async getPublicFeed(@Query() queryDto: QueryRecipeDto) {

@@ -12,7 +12,39 @@ export class RecipesService {
     @InjectModel(Recipe.name) private recipeModel: Model<RecipeDocument>,
   ) {}
 
+  // Helper method to calculate nutrition totals
+  private calculateNutritionTotals(ingredients: any[]): {
+    totalCalories: number;
+    totalProtein: number;
+    totalFat: number;
+    totalCarbs: number;
+  } {
+    const totals = ingredients.reduce(
+      (acc, ing) => {
+        // Extract number from quantity string (e.g., "200g" -> 200)
+        const quantityMatch = ing.quantity?.match(/(\d+\.?\d*)/);
+        const quantity = quantityMatch ? parseFloat(quantityMatch[1]) : 100;
+        
+        // Assume nutrition data is per 100g
+        const multiplier = quantity / 100;
+
+        return {
+          totalCalories: acc.totalCalories + (ing.calories || 0) * multiplier,
+          totalProtein: acc.totalProtein + (ing.protein || 0) * multiplier,
+          totalFat: acc.totalFat + (ing.fat || 0) * multiplier,
+          totalCarbs: acc.totalCarbs + (ing.carbs || 0) * multiplier,
+        };
+      },
+      { totalCalories: 0, totalProtein: 0, totalFat: 0, totalCarbs: 0 },
+    );
+
+    return totals;
+  }
+
   async create(createRecipeDto: CreateRecipeDto, userId: string, userName: string, userAvatar?: string): Promise<Recipe> {
+    // Calculate nutrition totals
+    const nutritionTotals = this.calculateNutritionTotals(createRecipeDto.ingredients);
+
     const createdRecipe = new this.recipeModel({
       ...createRecipeDto,
       userId,
@@ -20,7 +52,14 @@ export class RecipesService {
       authorAvatar: userAvatar,
       isPublic: createRecipeDto.isPublic || false,
       tags: createRecipeDto.tags || [],
+      ...nutritionTotals, // Add calculated totals
     });
+    
+    console.log('🍳 Creating recipe with nutrition:', {
+      title: createRecipeDto.title,
+      ...nutritionTotals,
+    });
+
     return createdRecipe.save();
   }
 
@@ -29,98 +68,164 @@ export class RecipesService {
     return this.recipeModel.find({ userId }).sort({ createdAt: -1 }).exec();
   }
 
- // NOUVELLE MÉTHODE : Feed public
-async findPublicFeed(queryDto: QueryRecipeDto): Promise<{
-  recipes: Recipe[];
-  total: number;
-  page: number;
-  totalPages: number;
-}> {
-  // AJOUTEZ DES VALEURS PAR DÉFAUT ICI
-  const { 
-    sortBy, 
-    category, 
-    difficulty, 
-    search, 
-    tag, 
-    page = 1,      // <-- Valeur par défaut
-    limit = 20     // <-- Valeur par défaut
-  } = queryDto;
+  // FIXED: Feed public avec valeurs par défaut
+  async findPublicFeed(queryDto: QueryRecipeDto): Promise<{
+    recipes: Recipe[];
+    total: number;
+    page: number;
+    totalPages: number;
+  }> {
+    // Valeurs par défaut explicites
+    const page = queryDto.page || 1;
+    const limit = queryDto.limit || 20;
+    const sortBy = queryDto.sortBy || RecipeSortBy.NEWEST;
+    const { category, difficulty, search, tag } = queryDto;
 
-  // Construction du filtre
-  const filter: any = { isPublic: true };
+    // Construction du filtre
+    const filter: any = { isPublic: true };
 
-  if (category && category !== 'Toutes') {
-    filter.category = category;
+    if (category && category !== 'Toutes') {
+      filter.category = category;
+    }
+
+    if (difficulty && difficulty !== 'Toutes') {
+      filter.difficulty = difficulty;
+    }
+
+    if (tag) {
+      filter.tags = tag;
+    }
+
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { 'ingredients.name': { $regex: search, $options: 'i' } },
+        { tags: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Tri
+    let sort: any = {};
+    switch (sortBy) {
+      case RecipeSortBy.POPULAR:
+        sort = { likes: -1, views: -1 };
+        break;
+      case RecipeSortBy.TRENDING:
+        sort = { likes: -1, createdAt: -1 };
+        break;
+      case RecipeSortBy.NEWEST:
+      default:
+        sort = { createdAt: -1 };
+    }
+
+    // Pagination
+    const skip = (page - 1) * limit;
+
+    console.log('🔍 PUBLIC FEED QUERY:', { filter, sort, page, limit, skip });
+
+    const [recipes, total] = await Promise.all([
+      this.recipeModel
+        .find(filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.recipeModel.countDocuments(filter),
+    ]);
+
+    console.log('✅ PUBLIC FEED RESULTS:', { recipesFound: recipes.length, total });
+
+    return {
+      recipes,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  if (difficulty && difficulty !== 'Toutes') {
-    filter.difficulty = difficulty;
+  // NOUVEAU: Trouver une recette publique par ID
+  async findPublicById(id: string): Promise<Recipe> {
+    const recipe = await this.recipeModel.findOne({ _id: id, isPublic: true }).exec();
+    
+    if (!recipe) {
+      throw new NotFoundException('Recette publique introuvable');
+    }
+
+    // Incrémenter les vues
+    await this.recipeModel.updateOne({ _id: id }, { $inc: { views: 1 } });
+
+    return recipe;
   }
 
-  if (tag) {
-    filter.tags = tag;
+  // Trouver par ID (mes recettes)
+  async findOne(id: string, userId: string): Promise<Recipe> {
+    const recipe = await this.recipeModel.findOne({ _id: id, userId }).exec();
+    
+    if (!recipe) {
+      throw new NotFoundException('Recette introuvable');
+    }
+
+    return recipe;
   }
 
-  if (search) {
-    filter.$or = [
-      { title: { $regex: search, $options: 'i' } },
-      { 'ingredients.name': { $regex: search, $options: 'i' } },
-      { tags: { $regex: search, $options: 'i' } },
-    ];
+  // Favoris
+  async findFavorites(userId: string): Promise<Recipe[]> {
+    return this.recipeModel.find({ userId, isFavorite: true }).sort({ createdAt: -1 }).exec();
   }
 
-  // Tri
-  let sort: any = {};
-  switch (sortBy) {
-    case RecipeSortBy.POPULAR:
-      sort = { likes: -1, views: -1 };
-      break;
-    case RecipeSortBy.TRENDING:
-      // Algorithme simple de trending: likes récents + vues
-      // Dans une vraie app, on utiliserait un score calculé
-      sort = { likes: -1, createdAt: -1 };
-      break;
-    case RecipeSortBy.NEWEST:
-    default:
-      sort = { createdAt: -1 };
+  // Par catégorie
+  async findByCategory(category: string, userId: string): Promise<Recipe[]> {
+    return this.recipeModel.find({ userId, category }).sort({ createdAt: -1 }).exec();
   }
 
-  // Pagination
-  const skip = (page - 1) * limit;
-
-  const [recipes, total] = await Promise.all([
-    this.recipeModel
-      .find(filter)
-      .sort(sort)
-      .skip(skip)
-      .limit(limit)
-      .exec(),
-    this.recipeModel.countDocuments(filter),
-  ]);
-
-  return {
-    recipes,
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-  };
-}
-
-  // NOUVELLE MÉTHODE : Like/Unlike
-  async toggleLike(recipeId: string, userId: string): Promise<Recipe> {
-    const recipe = await this.recipeModel.findById(recipeId);
+  // Mettre à jour
+  async update(id: string, updateRecipeDto: UpdateRecipeDto, userId: string): Promise<Recipe> {
+    const recipe = await this.recipeModel.findOne({ _id: id, userId }).exec();
 
     if (!recipe) {
       throw new NotFoundException('Recette introuvable');
     }
 
+    // Recalculate nutrition if ingredients changed
+    let nutritionTotals = {};
+    if (updateRecipeDto.ingredients) {
+      nutritionTotals = this.calculateNutritionTotals(updateRecipeDto.ingredients);
+      console.log('🔄 Updating recipe nutrition:', {
+        title: recipe.title,
+        ...nutritionTotals,
+      });
+    }
+
+    Object.assign(recipe, updateRecipeDto, nutritionTotals);
+    recipe.updatedAt = new Date();
+
+    return recipe.save();
+  }
+
+  // Supprimer
+  async remove(id: string, userId: string): Promise<void> {
+    const result = await this.recipeModel.deleteOne({ _id: id, userId }).exec();
+
+    if (result.deletedCount === 0) {
+      throw new NotFoundException('Recette introuvable');
+    }
+  }
+
+  // NOUVEAU: Toggle like
+  async toggleLike(recipeId: string, userId: string): Promise<Recipe> {
+    const recipe = await this.recipeModel.findById(recipeId).exec();
+
+    if (!recipe) {
+      throw new NotFoundException('Recette introuvable');
+    }
+
+    // Vérifier si l'utilisateur a déjà liké
     const userIdObj = userId as any;
-    const hasLiked = recipe.likedBy.some(id => id.toString() === userId);
+    const hasLiked = recipe.likedBy.some(id => id.toString() === userIdObj.toString());
 
     if (hasLiked) {
       // Unlike
-      recipe.likedBy = recipe.likedBy.filter(id => id.toString() !== userId);
+      recipe.likedBy = recipe.likedBy.filter(id => id.toString() !== userIdObj.toString());
       recipe.likes = Math.max(0, recipe.likes - 1);
     } else {
       // Like
@@ -131,82 +236,96 @@ async findPublicFeed(queryDto: QueryRecipeDto): Promise<{
     return recipe.save();
   }
 
-  // NOUVELLE MÉTHODE : Incrémenter les vues
-  async incrementViews(recipeId: string): Promise<void> {
-    await this.recipeModel.findByIdAndUpdate(
-      recipeId,
-      { $inc: { views: 1 } },
-      { new: true }
-    );
-  }
-
-  // NOUVELLE MÉTHODE : Recette publique par ID
-  async findPublicById(recipeId: string): Promise<Recipe> {
-    const recipe = await this.recipeModel.findOne({
-      _id: recipeId,
-      isPublic: true,
-    }).exec();
+  // COMMENTS: Add comment
+  async addComment(
+    recipeId: string,
+    userId: string,
+    userName: string,
+    commentText: string,
+    userAvatar?: string,
+  ): Promise<Recipe> {
+    const recipe = await this.recipeModel.findById(recipeId).exec();
 
     if (!recipe) {
-      throw new NotFoundException('Recette publique introuvable');
+      throw new NotFoundException('Recette introuvable');
     }
 
-    // Incrémenter les vues
-    await this.incrementViews(recipeId);
+    if (!recipe.isPublic) {
+      throw new ForbiddenException('Cette recette n\'est pas publique');
+    }
 
-    return recipe;
-  }
+    const newComment = {
+      userId,
+      userName,
+      userAvatar,
+      text: commentText,
+      createdAt: new Date(),
+    };
 
-  // Méthodes existantes...
-  async findOne(id: string, userId: string): Promise<Recipe> {
-    const recipe = await this.recipeModel.findById(id).exec();
+    recipe.comments.push(newComment as any);
     
-    if (!recipe) {
-      throw new NotFoundException('Recette introuvable');
-    }
+    console.log('💬 Comment added:', {
+      recipeId,
+      userName,
+      commentsCount: recipe.comments.length,
+    });
 
-    if (recipe.userId.toString() !== userId) {
-      throw new ForbiddenException('Accès non autorisé à cette recette');
-    }
-
-    return recipe;
-  }
-
-  async update(id: string, updateRecipeDto: UpdateRecipeDto, userId: string): Promise<Recipe> {
-    const recipe = await this.recipeModel.findById(id).exec();
-
-    if (!recipe) {
-      throw new NotFoundException('Recette introuvable');
-    }
-
-    if (recipe.userId.toString() !== userId) {
-      throw new ForbiddenException('Accès non autorisé à cette recette');
-    }
-
-    Object.assign(recipe, updateRecipeDto);
-    recipe.updatedAt = new Date();
     return recipe.save();
   }
 
-  async remove(id: string, userId: string): Promise<void> {
-    const recipe = await this.recipeModel.findById(id).exec();
+  // COMMENTS: Delete comment
+  async deleteComment(
+    recipeId: string,
+    commentId: string,
+    userId: string,
+  ): Promise<Recipe> {
+    const recipe = await this.recipeModel.findById(recipeId).exec();
 
     if (!recipe) {
       throw new NotFoundException('Recette introuvable');
     }
 
-    if (recipe.userId.toString() !== userId) {
-      throw new ForbiddenException('Accès non autorisé à cette recette');
+    const commentIndex = recipe.comments.findIndex(
+      (comment: any) => comment._id.toString() === commentId,
+    );
+
+    if (commentIndex === -1) {
+      throw new NotFoundException('Commentaire introuvable');
     }
 
-    await this.recipeModel.findByIdAndDelete(id).exec();
+    // Vérifier que l'utilisateur est propriétaire du commentaire ou de la recette
+    const comment = recipe.comments[commentIndex] as any;
+    if (
+      comment.userId.toString() !== userId &&
+      recipe.userId.toString() !== userId
+    ) {
+      throw new ForbiddenException(
+        'Vous n\'avez pas la permission de supprimer ce commentaire',
+      );
+    }
+
+    recipe.comments.splice(commentIndex, 1);
+    
+    console.log('🗑️ Comment deleted:', {
+      recipeId,
+      commentId,
+      remainingComments: recipe.comments.length,
+    });
+
+    return recipe.save();
   }
 
-  async findByCategory(category: string, userId: string): Promise<Recipe[]> {
-    return this.recipeModel.find({ userId, category }).exec();
-  }
+  // COMMENTS: Get comments
+  async getComments(recipeId: string): Promise<any[]> {
+    const recipe = await this.recipeModel.findById(recipeId).exec();
 
-  async findFavorites(userId: string): Promise<Recipe[]> {
-    return this.recipeModel.find({ userId, isFavorite: true }).exec();
+    if (!recipe) {
+      throw new NotFoundException('Recette introuvable');
+    }
+
+    return recipe.comments.sort(
+      (a: any, b: any) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
   }
 }

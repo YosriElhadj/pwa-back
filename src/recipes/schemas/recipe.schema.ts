@@ -3,6 +3,27 @@ import { Document, Types } from 'mongoose';
 
 export type RecipeDocument = Recipe & Document;
 
+// Comment subdocument schema
+@Schema({ timestamps: true })
+export class Comment {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  userId: Types.ObjectId;
+
+  @Prop({ required: true })
+  userName: string;
+
+  @Prop()
+  userAvatar?: string;
+
+  @Prop({ required: true })
+  text: string;
+
+  @Prop({ default: Date.now })
+  createdAt: Date;
+}
+
+export const CommentSchema = SchemaFactory.createForClass(Comment);
+
 @Schema({ timestamps: true })
 export class Recipe {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
@@ -21,8 +42,28 @@ export class Recipe {
   @Prop({ required: true })
   prepTime: number;
 
-  @Prop({ type: [{ name: String, quantity: String }], required: true })
-  ingredients: { name: string; quantity: string }[];
+  // UPDATED: Ingredients with nutrition data
+  @Prop({
+    type: [{
+      name: String,
+      quantity: String,
+      foodId: String,
+      calories: Number,
+      protein: Number,
+      fat: Number,
+      carbs: Number,
+    }],
+    required: true,
+  })
+  ingredients: {
+    name: string;
+    quantity: string;
+    foodId?: string;
+    calories?: number;
+    protein?: number;
+    fat?: number;
+    carbs?: number;
+  }[];
 
   @Prop({ type: [String], required: true })
   steps: string[];
@@ -33,7 +74,7 @@ export class Recipe {
   @Prop({ default: false })
   isFavorite: boolean;
 
-  // NOUVELLES PROPRIÉTÉS SOCIALES
+  // PROPRIÉTÉS SOCIALES
   @Prop({ default: false })
   isPublic: boolean;
 
@@ -49,7 +90,24 @@ export class Recipe {
   @Prop({ type: [String], default: [] })
   tags: string[];
 
-  // Informations de l'auteur (dénormalisées pour performance)
+  // Commentaires
+  @Prop({ type: [CommentSchema], default: [] })
+  comments: Comment[];
+
+  // NEW: Nutrition totals
+  @Prop({ default: 0 })
+  totalCalories: number;
+
+  @Prop({ default: 0 })
+  totalProtein: number;
+
+  @Prop({ default: 0 })
+  totalFat: number;
+
+  @Prop({ default: 0 })
+  totalCarbs: number;
+
+  // Informations de l'auteur
   @Prop()
   authorName: string;
 
