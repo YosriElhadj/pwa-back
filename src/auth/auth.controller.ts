@@ -1,36 +1,71 @@
-import { Controller, Post, Body, UseGuards, Request, HttpCode, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import { 
+  Controller, 
+  Post, 
+  Body, 
+  Get, 
+  UseGuards, 
+  Request,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { CreateUserDto } from '../users/dto/create-user.dto';
+import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { LocalAuthGuard } from './guards/local-auth/local-auth.guard';
+import { GoogleAuthDto } from './dto/google-auth.dto';
+import { JwtAuthGuard } from './guards/jwt-auth/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  /**
+   * Register new user
+   * POST /api/auth/register
+   */
   @Post('register')
-  async register(@Body() createUserDto: CreateUserDto) {
-    return this.authService.register(createUserDto);
+  @HttpCode(HttpStatus.CREATED)
+  async register(@Body() registerDto: RegisterDto) {
+    return this.authService.register(registerDto);
   }
 
-  @UseGuards(LocalAuthGuard)
+  /**
+   * Login with email/password
+   * POST /api/auth/login
+   */
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Request() req, @Body() loginDto: LoginDto) {
-    return this.authService.login(req.user);
+  async login(@Body() loginDto: LoginDto) {
+    return this.authService.login(loginDto);
   }
 
-  @Post('verify')
+  /**
+   * Google OAuth authentication
+   * POST /api/auth/google
+   */
+  @Post('google')
   @HttpCode(HttpStatus.OK)
-  async verify(@Body() body: { email: string; password: string }) {
-    const user = await this.authService.validateUser(body.email, body.password);
-    if (!user) {
-      throw new UnauthorizedException('Email ou mot de passe incorrect');
-    }
-    return {
-      id: user._id,
-      email: user.email,
-      name: user.name,
-    };
+  async googleAuth(@Body() googleAuthDto: GoogleAuthDto) {
+    return this.authService.googleAuth(googleAuthDto);
+  }
+
+  /**
+   * Get current user profile
+   * GET /api/auth/profile
+   * Requires JWT authentication
+   */
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  async getProfile(@Request() req) {
+    return this.authService.getProfile(req.user.userId);
+  }
+
+  /**
+   * Validate token
+   * POST /api/auth/validate
+   */
+  @Post('validate')
+  @HttpCode(HttpStatus.OK)
+  async validateToken(@Body('token') token: string) {
+    return this.authService.validateToken(token);
   }
 }

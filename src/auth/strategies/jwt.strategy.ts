@@ -7,8 +7,8 @@ import { UsersService } from '../../users/users.service';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
-    private usersService: UsersService,
     private configService: ConfigService,
+    private usersService: UsersService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -19,14 +19,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: any) {
     const user = await this.usersService.findById(payload.sub);
-    if (!user) {
-      throw new UnauthorizedException();
-    }
     
+    if (!user) {
+      throw new UnauthorizedException('Utilisateur non trouvé');
+    }
+
     return { 
       userId: payload.sub, 
-      email: payload.email, 
-      name: payload.name 
+      email: payload.email,
+      name: payload.name,
     };
   }
 }
