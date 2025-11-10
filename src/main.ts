@@ -5,8 +5,15 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // ✅ FIX: Autoriser le frontend Vercel
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://localhost:3001'],
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://recipe-manager-frontend-three.vercel.app',
+      'https://recipe-manager-frontend-lfkjm3h95-yosris-projects-5c0884f5.vercel.app',
+      /^https:\/\/recipe-manager-frontend-.*\.vercel\.app$/,  // Accepter tous les déploiements preview
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -15,10 +22,10 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: false, // CHANGE from true to false
+      forbidNonWhitelisted: false,
       transform: true,
       transformOptions: {
-        enableImplicitConversion: true, // ADD THIS
+        enableImplicitConversion: true,
       },
     }),
   );
